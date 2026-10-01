@@ -1,0 +1,406 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © fadizeidan
+// Modified to include first-tap alerts for 15m and 1H FVGs
+//
+//@version=5
+indicator("HTF FVGs - 15m-1H-4H Tap", overlay=true, max_bars_back = 5000, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500)
+
+//+------------------------------------------------------------------------------------------------------------+//
+//+--- Types                                                                                                ---+//
+//+------------------------------------------------------------------------------------------------------------+//
+type Settings 
+    bool    CE_show
+    string  CE_style
+    color   CE_color
+    bool    Border_show
+    bool    mitigated_show
+    string  mitigated_type
+    color   mitigated_color_bull
+    color   mitigated_color_bear
+    bool    ltf_hide
+    bool    label_show
+    color   label_color
+    color   label_bgcolor
+    string  label_size
+    int     padding
+    int     buffer
+
+type Imbalance_Settings
+    bool    show
+    string  htf
+    color   color_bull
+    color   color_bear
+    int     max_count
+
+type Imbalance
+    int     open_time
+    int     close_time
+    float   open
+    float   middle
+    float   close
+    bool    mitigated
+    int     mitigated_time
+    line    line_middle
+    label   lbl
+    box     box
+    bool    tapped          // Tracks whether first tap alert has fired
+
+type ImbalanceStructure
+    Imbalance[]         imbalance
+    Imbalance_Settings  settings
+
+type Helper
+    string name         = "Helper"
+
+//+------------------------------------------------------------------------------------------------------------+//
+//+--- Settings                                                                                             ---+//
+//+------------------------------------------------------------------------------------------------------------+//
+Settings_Group                      = "Global Settings"
+Alert_Group                         = "First Tap Alerts"
+
+Settings settings                   = Settings.new()
+Imbalance_Settings HTF_1_Settings   = Imbalance_Settings.new()
+Imbalance_Settings HTF_2_Settings   = Imbalance_Settings.new()
+Imbalance_Settings HTF_3_Settings   = Imbalance_Settings.new()
+Imbalance_Settings HTF_4_Settings   = Imbalance_Settings.new()
+Imbalance_Settings HTF_5_Settings   = Imbalance_Settings.new()
+Imbalance_Settings HTF_6_Settings   = Imbalance_Settings.new()
+
+string tooltip1 = "HTF FVG Settings:\n\tShow/Hide timeframe\n\tTimeframe to display\n\tBullish FVG Color\n\tBearish FVG Color\n\tMaximum number of FVGs to display"
+string tooltip2 = "Mitigated FVG Settings:\n\tShow/Hide mitigated (Applies to all).\n\tBullish FVG Color\n\tBearish FVG Color\n\tWhen to mark it as mitigated (Based on HTF timeframe, not current timeframe)"
+
+HTF_1_Settings.show         := input.bool(true, "", inline="htf1")
+htf_1                        = input.timeframe("5", "", inline="htf1")
+HTF_1_Settings.htf          := htf_1
+HTF_1_Settings.color_bull   := input.color(color.new(color.green,90), "", inline="htf1")
+HTF_1_Settings.color_bear   := input.color(color.new(color.blue,90), "", inline="htf1")
+HTF_1_Settings.max_count    := input.int(20, "", inline="htf1", tooltip = tooltip1)
+
+HTF_2_Settings.show         := input.bool(true, "", inline="htf2")
+htf_2                        = input.timeframe("15", "", inline="htf2")
+HTF_2_Settings.htf          := htf_2
+HTF_2_Settings.color_bull   := input.color(color.new(color.green,90), "", inline="htf2")
+HTF_2_Settings.color_bear   := input.color(color.new(color.blue,90), "", inline="htf2")
+HTF_2_Settings.max_count    := input.int(20, "", inline="htf2", tooltip = tooltip1)
+
+HTF_3_Settings.show         := input.bool(true, "", inline="htf3")
+htf_3                        = input.timeframe("60", "", inline="htf3")
+HTF_3_Settings.htf          := htf_3
+HTF_3_Settings.color_bull   := input.color(color.new(color.green,90), "", inline="htf3")
+HTF_3_Settings.color_bear   := input.color(color.new(color.blue,90), "", inline="htf3")
+HTF_3_Settings.max_count    := input.int(20, "", inline="htf3", tooltip = tooltip1)
+
+HTF_4_Settings.show         := input.bool(true, "", inline="htf4")
+htf_4                        = input.timeframe("240", "", inline="htf4")
+HTF_4_Settings.htf          := htf_4
+HTF_4_Settings.color_bull   := input.color(color.new(color.green,90), "", inline="htf4")
+HTF_4_Settings.color_bear   := input.color(color.new(color.blue,90), "", inline="htf4")
+HTF_4_Settings.max_count    := input.int(10, "", inline="htf4", tooltip = tooltip1)
+
+HTF_5_Settings.show         := input.bool(true, "", inline="htf5")
+htf_5                        = input.timeframe("1D", "", inline="htf5")
+HTF_5_Settings.htf          := htf_5
+HTF_5_Settings.color_bull   := input.color(color.new(color.green,90), "", inline="htf5")
+HTF_5_Settings.color_bear   := input.color(color.new(color.blue,90), "", inline="htf5")
+HTF_5_Settings.max_count    := input.int(10, "", inline="htf5", tooltip = tooltip1)
+
+HTF_6_Settings.show         := input.bool(true, "", inline="htf6")
+htf_6                        = input.timeframe("1W", "", inline="htf6")
+HTF_6_Settings.htf          := htf_6
+HTF_6_Settings.color_bull   := input.color(color.new(color.green,90), "", inline="htf6")
+HTF_6_Settings.color_bear   := input.color(color.new(color.blue,90), "", inline="htf6")
+HTF_6_Settings.max_count    := input.int(2, "", inline="htf6", tooltip = tooltip1)
+
+settings.ltf_hide               := input.bool(true, "Hide Lower Timeframes")
+settings.Border_show            := input.bool(true, "Show Border", group=Settings_Group, inline="4")
+settings.mitigated_show         := input.bool(true, "Show Mitigated", group=Settings_Group, inline="2")
+settings.mitigated_color_bull   := input.color(color.new(color.gray,95), "", group=Settings_Group, inline="2")
+settings.mitigated_color_bear   := input.color(color.new(color.gray,95), "", group=Settings_Group, inline="2")
+settings.mitigated_type         := input.string('Wick filled', 'when', options = ['None', 'Wick filled', 'Body filled', 'Wick filled half', 'Body filled half'], group=Settings_Group, inline="2", tooltip=tooltip2)
+settings.CE_show                := input.bool(true, "Show C.E.     ", group=Settings_Group, inline="3")
+settings.CE_color               := input.color(color.new(color.black,60), "", group=Settings_Group, inline="3")
+settings.CE_style               := input.string('····', '     ', options = ['⎯⎯⎯', '----', '····'], group=Settings_Group, inline="3")
+settings.label_show             := input.bool(true, "Show Label   ", inline="label")
+settings.label_color            := input.color(color.new(color.black, 10), "", inline='label')
+settings.label_bgcolor          := input.color(color.new(color.white, 100), "", inline='label')
+settings.label_size             := input.string(size.small, "", [size.tiny, size.small, size.normal, size.large, size.huge], inline="label")
+settings.padding                := input.int(4, "Distance from current candle", minval=0)
+settings.buffer                 := input.int(6, "Spacing between timeframes", minval=0)
+
+// --- Alert Inputs ---
+bool alert_15m = input.bool(true, "Alert on First Tap — 15m FVG", group=Alert_Group)
+bool alert_1h  = input.bool(true, "Alert on First Tap — 1H FVG",  group=Alert_Group)
+bool alert_4h  = input.bool(true, "Alert on First Tap — 4H FVG",  group=Alert_Group)
+
+//+------------------------------------------------------------------------------------------------------------+//
+//+--- Variables                                                                                            ---+//
+//+------------------------------------------------------------------------------------------------------------+//
+color color_transparent             = #ffffff00
+
+Helper helper                       = Helper.new()
+
+var ImbalanceStructure FVG_1        = ImbalanceStructure.new()
+var ImbalanceStructure FVG_2        = ImbalanceStructure.new()
+var ImbalanceStructure FVG_3        = ImbalanceStructure.new()
+var ImbalanceStructure FVG_4        = ImbalanceStructure.new()
+var ImbalanceStructure FVG_5        = ImbalanceStructure.new()
+var ImbalanceStructure FVG_6        = ImbalanceStructure.new()
+
+var Imbalance[] FVGs_1              = array.new<Imbalance>()
+var Imbalance[] FVGs_2              = array.new<Imbalance>()
+var Imbalance[] FVGs_3              = array.new<Imbalance>()
+var Imbalance[] FVGs_4              = array.new<Imbalance>()
+var Imbalance[] FVGs_5              = array.new<Imbalance>()
+var Imbalance[] FVGs_6              = array.new<Imbalance>()
+
+FVG_1.imbalance                     := FVGs_1
+FVG_1.settings                      := HTF_1_Settings
+FVG_2.imbalance                     := FVGs_2
+FVG_2.settings                      := HTF_2_Settings
+FVG_3.imbalance                     := FVGs_3
+FVG_3.settings                      := HTF_3_Settings
+FVG_4.imbalance                     := FVGs_4
+FVG_4.settings                      := HTF_4_Settings
+FVG_5.imbalance                     := FVGs_5
+FVG_5.settings                      := HTF_5_Settings
+FVG_6.imbalance                     := FVGs_6
+FVG_6.settings                      := HTF_6_Settings
+
+var int TF_1        = 0
+var int TF_2        = 0
+var int TF_3        = 0
+var int TF_4        = 0
+var int TF_5        = 0
+var int TF_6        = 0
+
+var float daily     = 0
+var float monthly   = 0
+
+//+------------------------------------------------------------------------------------------------------------+//
+//+--- Methods                                                                                              ---+//
+//+------------------------------------------------------------------------------------------------------------+//
+method LineStyle(Helper helper, string style) =>
+    helper.name := style
+
+    out = switch style
+        '----' => line.style_dashed
+        '····' => line.style_dotted
+        => line.style_solid
+    
+    out
+
+method Gethtftext(Helper helper, string htf) =>
+    helper.name := htf
+
+    formatted = htf
+    seconds = timeframe.in_seconds(htf)
+
+    if seconds < 60
+        formatted := str.tostring(seconds) + "s"
+    else if (seconds / 60) < 60
+        formatted := str.tostring((seconds/60)) + "m"
+    else if (seconds/60/60) < 24
+        formatted := str.tostring((seconds/60/60)) + "H"
+    
+    formatted
+
+method Validtimeframe(Helper helper, tf) =>
+    helper.name := tf
+    n1 = timeframe.in_seconds()
+    n2 = timeframe.in_seconds(tf)
+
+    n1 < n2
+
+method ProximityRange(Helper helper, tf) =>
+    helper.name := tf
+    float range_high    = 0
+    float range_low   = 0
+    if timeframe.isseconds or timeframe.isminutes
+        range_high := close + daily
+        range_low  := close - daily
+    if timeframe.isdaily
+        range_high := close + monthly*3
+        range_low  := close - monthly*3
+    if timeframe.isweekly
+        range_high := close + monthly*12
+        range_low  := close - monthly*12
+
+    [range_low, range_high]
+
+//+------------------------------------------------------------------------------------------------------------+//
+//+--- Imbalances Methods                                                                                   ---+//
+//+------------------------------------------------------------------------------------------------------------+//
+method AddZone(ImbalanceStructure IS, Imbalance imb, int step) =>
+    bool visible = true
+    if IS.settings.show
+        int buffer = time+((time-time[1])*(settings.padding+1+(settings.buffer*(step-1))))
+
+        if na(imb.box)
+            imb.box := box.new(imb.open_time, imb.open, buffer, imb.close, settings.Border_show ? imb.open < imb.close ? color.new(IS.settings.color_bull, color.t(IS.settings.color_bull)/ 3) : color.new(IS.settings.color_bear, color.t(IS.settings.color_bear)/ 3) : color_transparent, settings.Border_show ? 1 : 0, bgcolor = imb.open < imb.close ? IS.settings.color_bull : IS.settings.color_bear, xloc=xloc.bar_time)
+            if settings.label_show
+                imb.lbl := label.new(buffer, imb.middle, text=helper.Gethtftext(IS.settings.htf), xloc=xloc.bar_time, textcolor=settings.label_color, style=label.style_label_left, color=settings.label_bgcolor, size = settings.label_size)
+            if settings.CE_show
+                imb.line_middle := line.new(imb.open_time, imb.middle, buffer, imb.middle, xloc=xloc.bar_time, style=helper.LineStyle(settings.CE_style), color=settings.CE_color)
+        else
+            box.set_right(imb.box, imb.mitigated ? imb.mitigated_time : buffer)
+            box.set_bgcolor(imb.box, imb.open < imb.close ? imb.mitigated ? settings.mitigated_color_bull : IS.settings.color_bull : imb.mitigated ? settings.mitigated_color_bear : IS.settings.color_bear)
+            box.set_border_color(imb.box, settings.Border_show ? imb.open < imb.close ? color.new(settings.mitigated_color_bull, color.t(settings.mitigated_color_bull)/ 3) : color.new(settings.mitigated_color_bear, color.t(settings.mitigated_color_bear)/ 3) : color_transparent)
+            label.set_x(imb.lbl, imb.mitigated ? imb.mitigated_time : buffer)
+            if settings.CE_show
+                line.set_x2(imb.line_middle, imb.mitigated ? imb.mitigated_time : buffer)
+        if imb.mitigated and not settings.mitigated_show
+            if not na(imb.box)
+                box.delete(imb.box)
+                line.delete(imb.line_middle)
+                label.delete(imb.lbl)
+                visible := false
+    visible
+
+method AddImbalance(ImbalanceStructure IS, float o, float c, int o_time) =>
+    Imbalance imb = Imbalance.new()
+    imb.open_time           := o_time
+    imb.open                := o
+    imb.middle              := (o+c)/2
+    imb.close               := c
+    imb.tapped              := false   // Initialize tapped as false
+
+    IS.imbalance.unshift(imb)
+
+    if IS.imbalance.size() > 100
+        temp = IS.imbalance.pop()
+        if not na(temp.box)
+            box.delete(temp.box)
+            line.delete(temp.line_middle)
+            label.delete(temp.lbl)
+    IS
+
+method CheckMitigated(ImbalanceStructure IS, o, h, l, c) =>
+    if IS.imbalance.size() > 0
+        for i = IS.imbalance.size() - 1 to 0
+            imb = IS.imbalance.get(i)
+
+            if not imb.mitigated
+                switch settings.mitigated_type
+                    "None" =>
+                        imb.mitigated       := false
+                    'Wick filled' =>
+                        imb.mitigated       := imb.open <= imb.close ? low <= imb.open : high >= imb.open
+                    'Body filled' =>
+                        imb.mitigated       := imb.open < imb.close ? math.min(o, c) <= imb.open : math.max(o, c) >= imb.open
+                    'Wick filled half' =>
+                        imb.mitigated       := imb.open <= imb.close ? low <= imb.middle : high >= imb.middle
+                    'Body filled half' =>
+                        imb.mitigated       := imb.open <= imb.close ? math.min(o, c) <= imb.middle : math.max(o, c) >= imb.middle
+                if imb.mitigated
+                    if not settings.mitigated_show
+                        if not na(imb.box)
+                            box.delete(imb.box)
+                            line.delete(imb.line_middle)
+                            label.delete(imb.lbl)
+                        IS.imbalance.remove(i)
+                    else
+                        imb.mitigated_time  := time
+    IS
+
+// CheckFirstTap — fires an alert the first time price enters an unmitigated FVG zone
+method CheckFirstTap(ImbalanceStructure IS, float h, float l, string tf_label) =>
+    if IS.imbalance.size() > 0
+        for i = 0 to IS.imbalance.size() - 1
+            imb = IS.imbalance.get(i)
+            if not imb.tapped and not imb.mitigated
+                bool isBull = imb.open < imb.close
+                // Bullish FVG: price taps down into it (low enters zone)
+                // Bearish FVG: price taps up into it (high enters zone)
+                bool tapped = isBull ? (l <= imb.close and h >= imb.open) : (h >= imb.close and l <= imb.open)
+                if tapped
+                    imb.tapped := true
+                    string direction = isBull ? "Bullish" : "Bearish"
+                    alert(direction + " FVG TAP — " + tf_label + " | " + syminfo.ticker + " @ " + str.tostring(math.round(close, 2)), alert.freq_once_per_bar)
+
+method AdjustMargins(ImbalanceStructure IS, int step) =>
+    int count = 0
+    if IS.imbalance.size() > 0
+        int buffer = time+((time-time[1])*(settings.padding+1+(settings.buffer*(step-1))))
+        
+        [rl, rh] = helper.ProximityRange(IS.settings.htf)
+
+        for i = 0 to IS.imbalance.size() - 1
+            imb = IS.imbalance.get(i)
+            if ((math.max(imb.open, imb.close) > rl) and (math.min(imb.open, imb.close) < rh)) and count < IS.settings.max_count
+                if IS.AddZone(imb, step)
+                    count := count+1
+            else
+                if not na(imb.box)
+                    box.delete(imb.box)
+                    label.delete(imb.lbl)
+                    line.delete((imb.line_middle))
+    IS
+
+method FindImbalance(ImbalanceStructure IS, o, h, l, c, t, o1, h1, l1, c1, t1, o2, h2, l2, c2, t2) =>
+    if IS.settings.show and (h < l2 or l > h2) 
+        o = h < l2 ? l2 : h2
+        c = h < l2 ? h : l
+        if IS.imbalance.size() == 0 
+            IS.AddImbalance(o, c, t2)
+        else
+            if IS.imbalance.first().open_time < t2
+                IS.AddImbalance(o, c, t2)
+    IS
+
+method Process(ImbalanceStructure IS, float o, float h, float l, float c, int t, float o1, float h1, float l1, float c1, int t1, float o2, float h2, float l2, float c2, int t2, string alert_label = "") =>
+    var int visible = 0
+    if IS.settings.show
+        if not settings.ltf_hide or (settings.ltf_hide and helper.Validtimeframe(IS.settings.htf))
+            if IS.settings.show
+                IS.FindImbalance(o, h, l, c, t, o1, h1, l1, c1, t1, o2, h2, l2, c2, t2)
+                visible := 1
+        IS.CheckMitigated(o, h, l, c)
+        // Only run tap check if an alert label was provided (controlled by input toggles)
+        if alert_label != ""
+            IS.CheckFirstTap(high, low, alert_label)
+    visible
+
+//+------------------------------------------------------------------------------------------------------------+//
+//+--- Main call to start the process                                                                       ---+//
+//+------------------------------------------------------------------------------------------------------------+//
+
+daily                                   := request.security(syminfo.tickerid, "1D", ta.atr(14))
+monthly                                 := request.security(syminfo.tickerid, "1M", ta.atr(14))
+
+[o_1, h_1, l_1, c_1, t_1]               = request.security(syminfo.tickerid, htf_1, [open[1], high[1], low[1], close[1], time[1]])
+[o1_1, h1_1, l1_1, c1_1, t1_1]          = request.security(syminfo.tickerid, htf_1, [open[2], high[2], low[2], close[2], time[2]])
+[o2_1, h2_1, l2_1, c2_1, t2_1]          = request.security(syminfo.tickerid, htf_1, [open[3], high[3], low[3], close[3], time[3]])
+TF_1 := FVG_1.Process(o_1, h_1, l_1, c_1, t_1, o1_1, h1_1, l1_1, c1_1, t1_1, o2_1, h2_1, l2_1, c2_1, t2_1)
+FVG_1.AdjustMargins(TF_1)
+
+[o_2, h_2, l_2, c_2, t_2]               = request.security(syminfo.tickerid, htf_2, [open[1], high[1], low[1], close[1], time[1]])
+[o1_2, h1_2, l1_2, c1_2, t1_2]          = request.security(syminfo.tickerid, htf_2, [open[2], high[2], low[2], close[2], time[2]])
+[o2_2, h2_2, l2_2, c2_2, t2_2]          = request.security(syminfo.tickerid, htf_2, [open[3], high[3], low[3], close[3], time[3]])
+// alert_15m toggle: passes "15m" label when enabled, empty string skips tap check
+TF_2 := TF_1 + FVG_2.Process(o_2, h_2, l_2, c_2, t_2, o1_2, h1_2, l1_2, c1_2, t1_2, o2_2, h2_2, l2_2, c2_2, t2_2, alert_15m ? "15m" : "")
+FVG_2.AdjustMargins(TF_2)
+
+[o_3, h_3, l_3, c_3, t_3]               = request.security(syminfo.tickerid, htf_3, [open[1], high[1], low[1], close[1], time[1]])
+[o1_3, h1_3, l1_3, c1_3, t1_3]          = request.security(syminfo.tickerid, htf_3, [open[2], high[2], low[2], close[2], time[2]])
+[o2_3, h2_3, l2_3, c2_3, t2_3]          = request.security(syminfo.tickerid, htf_3, [open[3], high[3], low[3], close[3], time[3]])
+// alert_1h toggle: passes "1H" label when enabled, empty string skips tap check
+TF_3 := TF_2 + FVG_3.Process(o_3, h_3, l_3, c_3, t_3, o1_3, h1_3, l1_3, c1_3, t1_3, o2_3, h2_3, l2_3, c2_3, t2_3, alert_1h ? "1H" : "")
+FVG_3.AdjustMargins(TF_3)
+
+[o_4, h_4, l_4, c_4, t_4]               = request.security(syminfo.tickerid, htf_4, [open[1], high[1], low[1], close[1], time[1]])
+[o1_4, h1_4, l1_4, c1_4, t1_4]          = request.security(syminfo.tickerid, htf_4, [open[2], high[2], low[2], close[2], time[2]])
+[o2_4, h2_4, l2_4, c2_4, t2_4]          = request.security(syminfo.tickerid, htf_4, [open[3], high[3], low[3], close[3], time[3]])
+TF_4 := TF_3 + FVG_4.Process(o_4, h_4, l_4, c_4, t_4, o1_4, h1_4, l1_4, c1_4, t1_4, o2_4, h2_4, l2_4, c2_4, t2_4, alert_4h ? "4H" : "")
+FVG_4.AdjustMargins(TF_4)
+
+[o_5, h_5, l_5, c_5, t_5]               = request.security(syminfo.tickerid, htf_5, [open[1], high[1], low[1], close[1], time[1]])
+[o1_5, h1_5, l1_5, c1_5, t1_5]          = request.security(syminfo.tickerid, htf_5, [open[2], high[2], low[2], close[2], time[2]])
+[o2_5, h2_5, l2_5, c2_5, t2_5]          = request.security(syminfo.tickerid, htf_5, [open[3], high[3], low[3], close[3], time[3]])
+TF_5 := TF_4 + FVG_5.Process(o_5, h_5, l_5, c_5, t_5, o1_5, h1_5, l1_5, c1_5, t1_5, o2_5, h2_5, l2_5, c2_5, t2_5)
+FVG_5.AdjustMargins(TF_5)
+
+[o_6, h_6, l_6, c_6, t_6]               = request.security(syminfo.tickerid, htf_6, [open[1], high[1], low[1], close[1], time[1]])
+[o1_6, h1_6, l1_6, c1_6, t1_6]          = request.security(syminfo.tickerid, htf_6, [open[2], high[2], low[2], close[2], time[2]])
+[o2_6, h2_6, l2_6, c2_6, t2_6]          = request.security(syminfo.tickerid, htf_6, [open[3], high[3], low[3], close[3], time[3]])
+TF_6 := TF_5 + FVG_6.Process(o_6, h_6, l_6, c_6, t_6, o1_6, h1_6, l1_6, c1_6, t1_6, o2_6, h2_6, l2_6, c2_6, t2_6)
+FVG_6.AdjustMargins(TF_6)
