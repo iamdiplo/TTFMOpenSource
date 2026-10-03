@@ -1,2 +1,2 @@
-# OpenSource
-Fractal Model [Beta]
+Open source Fractal Models by different traders who has shared their scripts.
+Feel free to experiment and see what works for you, enjoy...
